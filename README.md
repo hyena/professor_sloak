@@ -14,7 +14,7 @@ Usage
 Known Issues
 ------------
 
-The bot uses (veekun)[https://www.veekun.com] for its pokemon art images.
+The bot uses [veekun](http://veekun.com) for its pokemon art images.
 Since veekun doesn't yet have art for all the new pokemon, the bot
 cuts off the number of maximum pokemon it generates.
 
