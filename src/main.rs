@@ -47,6 +47,8 @@ fn attachment_for_pokemon(pokemon: &PokedexEntry) -> slack::Attachment {
                             pokemon.species_id);
     let flavor = &sample(&mut thread_rng(), &pokemon.flavor, 1)[0];
 
+    // TODO: Create our own Attachment record or use a less verbose way of filling these optional
+    // fields.
     slack::Attachment {
         fallback: Some(format!("#{:03} {}, The {} Pokémon\n{}\n{}",
                           pokemon.species_id,
@@ -102,7 +104,7 @@ impl slack::EventHandler for SlackHandler {
     }
 }
 
-
+/// Constructs an English-language pokedex from csv files.
 fn construct_pokedex() -> Vec<PokedexEntry> {
     let mut dex: Vec<PokedexEntry> = Vec::new();
 
