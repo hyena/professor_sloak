@@ -3,6 +3,9 @@ Professor Sloak
 
 This is a silly slack bot written to practice Rust.
 
+The bot wouldn't be possible without data from the [veekun pokedex]
+(https://github.com/veekun/pokedex). Thank you, Eevee!
+
 
 Usage
 -----
