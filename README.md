@@ -11,11 +11,11 @@ Usage
  2. `cargo run -- <api-key>`
  3. Type `#pokeme` in slack to meet your new spirit animal.
 
+The bot as written is designed to try to reconnect indefinitely with a
+5 second cooldown between attempts.
+
+
 Known Issues
 ------------
-
-The bot uses [veekun](http://veekun.com) for its pokemon art images.
-Since veekun doesn't yet have art for all the new pokemon, the bot
-cuts off the number of maximum pokemon it generates.
 
 The bot is hardcoded to use English language text.
