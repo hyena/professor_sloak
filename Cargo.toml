@@ -1,0 +1,9 @@
+[package]
+name = "professor_sloak"
+version = "0.1.0"
+authors = ["Strain-113 <hive.rats@gmail.com>"]
+
+[dependencies]
+rand = "0.3"
+csv = "0.14"
+rustc-serialize = "0.3"
