@@ -8,4 +8,4 @@ csv = "0.14"
 rand = "0.3"
 rustc-serialize = "0.3"
 # We depend on our own version of slack-rs to get around a deserialization bug.
-slack = { git = "https://github.com/strain-113/slack-rs", branch = "professor-sloak-support" }
+slack = { git = "https://github.com/hyena/slack-rs", branch = "professor-sloak-support" }
