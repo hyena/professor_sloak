@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Strain-113 <hive.rats@gmail.com>"]
 
 [dependencies]
+chrono = "0.4"
 csv = "0.14"
 rand = "0.3"
 rustc-serialize = "0.3"

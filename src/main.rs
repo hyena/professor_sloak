@@ -1,8 +1,10 @@
+extern crate chrono;
 extern crate csv;
 extern crate rand;
 extern crate rustc_serialize;
 extern crate slack;
 
+use chrono::prelude::{Datelike, Utc};
 use rand::{Rng, sample, thread_rng};
 use rustc_serialize::json;
 use std::collections::hash_set::HashSet;
@@ -63,7 +65,7 @@ fn attachment_for_pokemon(pokemon: &PokedexEntry) -> slack::Attachment {
         author_icon: None,
         title: Some(pokemon.species.clone()),
         title_link: None,
-        text: Some(format!("_The {} Pokémon_\n\n{}", &pokemon.genus, flavor)),
+        text: Some(format!("_The {}_\n\n{}", &pokemon.genus, flavor)),
         fields: None,
         mrkdwn_in: Some(vec![String::from("text")]),
         image_url: Some(image_url),
@@ -82,7 +84,13 @@ impl slack::EventHandler for SlackHandler {
             //    pinned_to: None, reactions: None, edited: None, attachments: None }))
             Ok(ev) => if let &slack::Event::Message(slack::Message::Standard { channel: Some(ref channel), user: Some(ref user), text: Some(ref text), .. }) = ev {
                 if text.contains("#pokeme") {
-                    let pokemon = thread_rng().choose(&self.pokedex).unwrap();
+                    // On trans visibility day, March 31st, everyone is Sylveon.
+                    let today = Utc::today();
+                    let pokemon = if today.month() == 3 && today.day() == 31 {
+                        &self.pokedex[699]
+                    } else {
+                        thread_rng().choose(&self.pokedex).unwrap()
+                    };
                     let attachment_json = json::encode(&vec![attachment_for_pokemon(pokemon)]).unwrap();
                     let _ = cli.post_message(channel,
                                              &format!("You are a {}!", &pokemon.species),
