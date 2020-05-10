@@ -2,14 +2,29 @@ extern crate chrono;
 extern crate csv;
 extern crate rand;
 extern crate rustc_serialize;
-extern crate slack;
+extern crate serenity;
+
+use serenity::client::Client;
+use serenity::model::channel::Message;
+use serenity::model::user::User;
+use serenity::prelude::{EventHandler, Context, TypeMapKey};
+use serenity::framework::standard::{
+    StandardFramework,
+    CommandError,
+    CommandResult,
+    macros::{
+        command,
+        group
+    }
+};
+use serenity::utils::MessageBuilder;
 
 use chrono::prelude::{Datelike, Utc};
 use rand::{Rng, sample, thread_rng};
-use rustc_serialize::json;
 use std::collections::hash_set::HashSet;
-use std::time::Duration;
+use std::env;
 
+// Pokedex stuff
 const ENGLISH: u32 = 9;
 
 #[derive(RustcDecodable)]
@@ -39,77 +54,19 @@ struct PokedexEntry {
     flavor: HashSet<String>,
 }
 
-struct SlackHandler {
-    pokedex: Vec<PokedexEntry>,
-}
+// Discord stuff
+#[group]
+#[commands(pokeme)]
+struct General;
 
-/// Construct an attachment object for a given pokemon species.
-fn attachment_for_pokemon(pokemon: &PokedexEntry) -> slack::Attachment {
-    let image_url = format!("http://assets.pokemon.com/assets/cms2/img/pokedex/full/{:03}.png",
-                            pokemon.species_id);
-    let flavor = &sample(&mut thread_rng(), &pokemon.flavor, 1)[0];
+struct Handler;
 
-    // TODO: Create our own Attachment record or use a less verbose way of filling these optional
-    // fields.
-    slack::Attachment {
-        fallback: Some(format!("#{:03} {}, The {} Pokémon\n{}\n{}",
-                          pokemon.species_id,
-                          &pokemon.species,
-                          &pokemon.genus,
-                          flavor,
-                          &image_url)),
-        color: None,
-        pretext: None,
-        author_name: Some(format!("#{:03}", pokemon.species_id)),
-        author_link: None,
-        author_icon: None,
-        title: Some(pokemon.species.clone()),
-        title_link: None,
-        text: Some(format!("_The {}_\n\n{}", &pokemon.genus, flavor)),
-        fields: None,
-        mrkdwn_in: Some(vec![String::from("text")]),
-        image_url: Some(image_url),
-        thumb_url: None,
-    }
-}
+impl EventHandler for Handler {}
 
-#[allow(unused_attributes, unused_variables)]
-impl slack::EventHandler for SlackHandler {
-    fn on_event(&mut self, cli: &mut slack::RtmClient, event: Result<&slack::Event, slack::Error>,
-                raw_json: &str) {
-        match event {
-            // Sample structure.
-            // Ok(Message(Standard { ts: "1465616511.000007", channel: Some("G0RFEFRF1"),
-            //    user: Some("U04R67MSW"), text: Some("#sloakme"), is_starred: None,
-            //    pinned_to: None, reactions: None, edited: None, attachments: None }))
-            Ok(ev) => if let &slack::Event::Message(slack::Message::Standard { channel: Some(ref channel), user: Some(ref user), text: Some(ref text), .. }) = ev {
-                if text.contains("#pokeme") {
-                    // On trans visibility day, March 31st, everyone is Sylveon.
-                    let today = Utc::today();
-                    let pokemon = if today.month() == 3 && today.day() == 31 {
-                        &self.pokedex[699]
-                    } else {
-                        thread_rng().choose(&self.pokedex).unwrap()
-                    };
-                    let attachment_json = json::encode(&vec![attachment_for_pokemon(pokemon)]).unwrap();
-                    let _ = cli.post_message(channel,
-                                             &format!("You are a {}!", &pokemon.species),
-                                             Some(&attachment_json));
-                }
-            },
-            Err(err) => println!("Error on event: {}", err),
-        }
-    }
+struct Pokedex;
 
-    fn on_ping(&mut self, cli: &mut slack::RtmClient) { }
-
-    fn on_close(&mut self, cli: &mut slack::RtmClient) {
-        println!("Closed.")
-    }
-
-    fn on_connect(&mut self, cli: &mut slack::RtmClient) {
-        println!("Connected.");
-    }
+impl TypeMapKey for Pokedex {
+    type Value = Vec<PokedexEntry>;
 }
 
 /// Constructs an English-language pokedex from csv files.
@@ -142,25 +99,58 @@ fn construct_pokedex() -> Vec<PokedexEntry> {
 }
 
 fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let api_key = match args.len() {
-        0 | 1 => panic!("No api-key in args! Usage: cargo run -- <api-key>"),
-        x => {
-            args[x - 1].clone()
-        }
-    };
+    let mut client = Client::new(&env::var("DISCORD_TOKEN").expect("token"), Handler)
+        .expect("Error creating client");
+    client.with_framework(StandardFramework::new()
+        .configure(|c| c.prefix("!"))
+        .group(&GENERAL_GROUP));
 
     println!("Processing CSV files....");
-    let mut slack_handler = SlackHandler { pokedex: construct_pokedex() };
-    println!("Done processing CSV files. Connecting to slack.");
+    {
+        let mut data = client.data.write();
+        data.insert::<Pokedex>(construct_pokedex());
+    }
+    println!("Done processing CSV files. Connecting to discord.");
 
-    let mut cli = slack::RtmClient::new(&api_key);
-    loop {
-        match cli.login_and_run::<SlackHandler>(&mut slack_handler) {
-            Ok(_) => {}
-            Err(err) => println!("Error: {}", err),
-        }
-        println!("Disconnected.  Sleeping and reconnecting....");
-        std::thread::sleep(Duration::new(5, 0));
+    if let Err(why) = client.start() {
+        println!("An error occurred while running the client: {:?}", why);
+    }
+}
+
+#[command]
+fn pokeme(ctx: &mut Context, msg: &Message) -> CommandResult {
+    let data = ctx.data.read();
+    let pokedex = data.get::<Pokedex>().unwrap();
+    // On trans visibility day, March 31st, everyone is Sylveon.
+    let today = Utc::today();
+    let pokemon = if today.month() == 3 && today.day() == 31 {
+        &pokedex[699]
+    } else {
+        thread_rng().choose(pokedex).unwrap()
+    };
+
+    let image_url = format!("http://assets.pokemon.com/assets/cms2/img/pokedex/full/{:03}.png",
+        pokemon.species_id);
+    let flavor = &sample(&mut thread_rng(), &pokemon.flavor, 1)[0];
+    
+    let msg = msg.channel_id.send_message(&ctx.http, |m| {
+        m.content(format!("**{}**:\nYou are a **{}** (#{:03})!",
+                          &msg.author,
+                          &pokemon.species,
+                          &pokemon.species_id));
+        m.embed(|e| {
+            e.title(format!("The {}", &pokemon.genus));
+            e.description(flavor);
+            e.image(image_url);
+            e
+        });
+
+        m
+    });
+
+    if let Err(why) = msg {
+        Err(CommandError(why.to_string()))
+    } else {
+        Ok(())
     }
 }
