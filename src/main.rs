@@ -6,6 +6,7 @@ extern crate serenity;
 
 use serenity::client::Client;
 use serenity::model::channel::Message;
+use serenity::model::id::UserId;
 use serenity::model::user::User;
 use serenity::prelude::{EventHandler, Context, TypeMapKey};
 use serenity::framework::standard::{
@@ -19,9 +20,11 @@ use serenity::framework::standard::{
 };
 use serenity::utils::MessageBuilder;
 
-use chrono::prelude::{Datelike, Utc};
+use chrono::prelude::*;
+use chrono::Duration;
 use rand::{Rng, sample, thread_rng};
 use std::collections::hash_set::HashSet;
+use std::collections::hash_map::HashMap;
 use std::env;
 
 // Pokedex stuff
@@ -45,7 +48,7 @@ struct FlavorRecord {
 }
 
 /// The actual structure we use to generate responses.
-#[derive(RustcDecodable)]
+#[derive(RustcDecodable, Clone)]
 struct PokedexEntry {
     species: String,
     genus: String,
@@ -64,6 +67,18 @@ struct Handler;
 impl EventHandler for Handler {}
 
 struct Pokedex;
+
+struct TimeoutMap {
+    epoch: DateTime<Utc>,
+    assignments: HashMap<UserId, String>
+}
+
+impl TypeMapKey for TimeoutMap {
+    type Value = TimeoutMap;
+}
+
+/// Hour of the day (UTC) when the map expires.
+static RESET_HOUR: u32 = 14;  // 2 PM
 
 impl TypeMapKey for Pokedex {
     type Value = Vec<PokedexEntry>;
@@ -98,16 +113,30 @@ fn construct_pokedex() -> Vec<PokedexEntry> {
     dex
 }
 
+/// Calculate the most recent checkpoint.
+fn current_checkpoint_time() -> DateTime::<Utc> {
+    let now = Utc::now();
+    if now.hour() >= RESET_HOUR {
+        now.date().and_hms(RESET_HOUR, 0, 0)
+    } else {
+        (now - Duration::days(1)).date().and_hms(RESET_HOUR, 0, 0)
+    }
+}
+
 fn main() {
     let mut client = Client::new(&env::var("DISCORD_TOKEN").expect("token"), Handler)
         .expect("Error creating client");
     client.with_framework(StandardFramework::new()
         .configure(|c| c.prefix("!"))
         .group(&GENERAL_GROUP));
-
-    println!("Processing CSV files....");
     {
         let mut data = client.data.write();
+        // Set-up our timeout system
+        data.insert::<TimeoutMap>(TimeoutMap {
+            epoch: current_checkpoint_time(),
+            assignments: HashMap::new()
+        });
+        println!("Processing CSV files....");
         data.insert::<Pokedex>(construct_pokedex());
     }
     println!("Done processing CSV files. Connecting to discord.");
@@ -119,15 +148,45 @@ fn main() {
 
 #[command]
 fn pokeme(ctx: &mut Context, msg: &Message) -> CommandResult {
-    let data = ctx.data.read();
-    let pokedex = data.get::<Pokedex>().unwrap();
-    // On trans visibility day, March 31st, everyone is Sylveon.
-    let today = Utc::today();
-    let pokemon = if today.month() == 3 && today.day() == 31 {
-        &pokedex[699]
-    } else {
-        thread_rng().choose(pokedex).unwrap()
-    };
+    let pokemon: PokedexEntry;
+    {
+        let data = ctx.data.read();
+        let pokedex = data.get::<Pokedex>().unwrap();
+        // On trans visibility day, March 31st, everyone is Sylveon.
+        let today = Utc::today();
+        pokemon = if today.month() == 3 && today.day() == 31 {
+            pokedex[699].clone()
+        } else {
+            thread_rng().choose(pokedex).unwrap().clone()
+        };
+    }
+    // Check if they've already gotten a horoscope in the recent
+    // timestamp.
+    let epoch = current_checkpoint_time();
+    let timeout_reply: Option<String>;
+    {
+        let mut data = ctx.data.write();
+        let tom = data.get_mut::<TimeoutMap>().unwrap();
+        if epoch > tom.epoch {
+            // Reset!
+            tom.epoch = epoch;
+            tom.assignments.clear();
+        }
+        match tom.assignments.get(&msg.author.id) {
+            Some(species) => {
+                // Don't do IO while holding a write lock.
+                timeout_reply = Some(format!("You are still a {}. Try again tomorrow.", species));
+            },
+            None => {
+                tom.assignments.insert(msg.author.id, pokemon.species.clone());
+                timeout_reply = None;
+            }
+        }
+    }
+    if let Some(rep) = timeout_reply {
+        msg.reply(ctx, rep);
+        return Ok(())
+    }
 
     let image_url = format!("http://assets.pokemon.com/assets/cms2/img/pokedex/full/{:03}.png",
         pokemon.species_id);
