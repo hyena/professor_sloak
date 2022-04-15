@@ -175,7 +175,7 @@ fn pokeme(ctx: &mut Context, msg: &Message) -> CommandResult {
         match tom.assignments.get(&msg.author.id) {
             Some(species) => {
                 // Don't do IO while holding a write lock.
-                timeout_reply = Some(format!("You are still a {}. Try again tomorrow.", species));
+                timeout_reply = Some(format!("You are still a {}. Try again tomorrow (2 PM UTC).", species));
             },
             None => {
                 tom.assignments.insert(msg.author.id, pokemon.species.clone());
